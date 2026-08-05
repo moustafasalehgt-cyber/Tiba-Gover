@@ -336,6 +336,15 @@ tbody td.num{font-variant-numeric:tabular-nums;color:var(--text-2);}
     </div>
     <div class="note">شهر أغسطس 2026 جزئي (لسه في بدايته)، وباقي شهور 2026 (سبتمبر–ديسمبر) لسه محصلش عليها إنتاج.</div>
   </div>
+
+  <div class="card">
+    <div class="section-title"><span class="bar"></span>الإنتاجية الربع سنوية (2024–2026)</div>
+    <div class="legend" id="quarterlyChartLegend"></div>
+    <div style="position:relative;height:340px;width:100%;">
+      <canvas id="quarterlyChart" role="img" aria-label="مخطط شريطي للإنتاج الربع سنوي لثلاث سنوات للمحافظة المختارة"></canvas>
+    </div>
+    <div class="note">نفس المحافظة والقناة المختارين في التحليل الشهري أعلاه. الربع الثالث من 2026 (يوليو–سبتمبر) جزئي.</div>
+  </div>
 </section>
 
 <!-- ===== TAB 2 ===== -->
@@ -840,7 +849,7 @@ function renderMonthlyChart(){
   });
 
   const legendEl = document.getElementById('monthlyChartLegend');
-  legendEl.innerHTML = datasets.map(ds=>`<span><span class="sw" style="background:${ds.backgroundColor}"></span>${ds.label}</span>`).join('');
+  legendEl.innerHTML = datasets.map((ds,i)=>`<span data-idx="${i}" style="cursor:pointer;user-select:none;"><span class="sw" style="background:${ds.backgroundColor}"></span>${ds.label}</span>`).join('');
 
   const monthlyBarLabelsPlugin = {
     id: 'monthlyBarLabels',
@@ -853,10 +862,11 @@ function renderMonthlyChart(){
       ctx.fillStyle = '#1B2430';
       chart.data.datasets.forEach((ds, dsIndex)=>{
         const meta = chart.getDatasetMeta(dsIndex);
+        if(meta.hidden) return;
         meta.data.forEach((bar, i)=>{
           const val = ds.data[i];
           if(!val) return;
-          ctx.fillText(fmt(val,1), bar.x, bar.y-3);
+          ctx.fillText(fmtInt(val), bar.x, bar.y-3);
         });
       });
       ctx.restore();
@@ -877,9 +887,93 @@ function renderMonthlyChart(){
   });
 }
 
-fmGovSelect.addEventListener('change', renderMonthlyChart);
-document.getElementById('fm-channel').addEventListener('change', renderMonthlyChart);
+const QUARTERS = [
+  {label:'الربع الأول', months:[0,1,2]},
+  {label:'الربع الثاني', months:[3,4,5]},
+  {label:'الربع الثالث', months:[6,7,8]},
+  {label:'الربع الرابع', months:[9,10,11]},
+];
+
+let quarterlyChart = null;
+function renderQuarterlyChart(){
+  const gov = fmGovSelect.value;
+  const channel = document.getElementById('fm-channel').value;
+  const govData = MONTHLY[gov] || {};
+
+  const datasets = YEARS.map(y=>{
+    const yd = govData[String(y)] || {};
+    const data = QUARTERS.map(q=>{
+      return q.months.reduce((sum, mi)=>{
+        const d = yd[MONTHS_AR[mi]] || {o:0,s:0};
+        let v = 0;
+        if(channel==='all') v = d.o + d.s;
+        else if(channel==='outdoor') v = d.o;
+        else v = d.s;
+        return sum + v;
+      }, 0);
+    });
+    return { label: yearLabel(y), data, backgroundColor: SERIES['y'+y], borderRadius:3, maxBarThickness:36 };
+  });
+
+  const legendEl = document.getElementById('quarterlyChartLegend');
+  legendEl.innerHTML = datasets.map((ds,i)=>`<span data-idx="${i}" style="cursor:pointer;user-select:none;"><span class="sw" style="background:${ds.backgroundColor}"></span>${ds.label}</span>`).join('');
+
+  const quarterlyBarLabelsPlugin = {
+    id: 'quarterlyBarLabels',
+    afterDatasetsDraw(chart){
+      const {ctx} = chart;
+      ctx.save();
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.font = "700 11px Tajawal, sans-serif";
+      ctx.fillStyle = '#1B2430';
+      chart.data.datasets.forEach((ds, dsIndex)=>{
+        const meta = chart.getDatasetMeta(dsIndex);
+        if(meta.hidden) return;
+        meta.data.forEach((bar, i)=>{
+          const val = ds.data[i];
+          if(!val) return;
+          ctx.fillText(fmtInt(val), bar.x, bar.y-3);
+        });
+      });
+      ctx.restore();
+    }
+  };
+
+  if(quarterlyChart) quarterlyChart.destroy();
+  quarterlyChart = new Chart(document.getElementById('quarterlyChart'), {
+    type:'bar',
+    data:{ labels: QUARTERS.map(q=>q.label), datasets },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      layout:{ padding:{top:20} },
+      plugins:{ legend:{display:false}, tooltip:{callbacks:{label:(ctx)=> ctx.dataset.label+': '+fmtQty(ctx.raw,1)}} },
+      scales:{ x:{grid:{display:false}, ticks:{font:{family:'Tajawal'}}}, y:{grid:{color:'#EDEAE0'}, ticks:{callback:v=>fmtInt(v)}} }
+    },
+    plugins:[quarterlyBarLabelsPlugin]
+  });
+}
+
+fmGovSelect.addEventListener('change', ()=>{ renderMonthlyChart(); renderQuarterlyChart(); });
+document.getElementById('fm-channel').addEventListener('change', ()=>{ renderMonthlyChart(); renderQuarterlyChart(); });
 renderMonthlyChart();
+renderQuarterlyChart();
+
+function wireToggleLegend(legendId, getChart){
+  document.getElementById(legendId).addEventListener('click', (e)=>{
+    const span = e.target.closest('span[data-idx]');
+    const chart = getChart();
+    if(!span || !chart) return;
+    const idx = +span.dataset.idx;
+    const visible = chart.isDatasetVisible(idx);
+    chart.setDatasetVisibility(idx, !visible);
+    chart.update();
+    span.style.opacity = visible ? '0.35' : '1';
+    span.style.textDecoration = visible ? 'line-through' : 'none';
+  });
+}
+wireToggleLegend('monthlyChartLegend', ()=>monthlyChart);
+wireToggleLegend('quarterlyChartLegend', ()=>quarterlyChart);
 
 // ================= TAB 2 =================
 const govSelect2 = document.getElementById('f2-gov');
@@ -1105,6 +1199,7 @@ refreshTab2();
         if(typeof refreshTab1==='function') refreshTab1();
         if(typeof refreshTab2==='function') refreshTab2();
         if(typeof renderMonthlyChart==='function') renderMonthlyChart();
+        if(typeof renderQuarterlyChart==='function') renderQuarterlyChart();
         window.dispatchEvent(new Event('resize'));
       }, 30);
     } else {
