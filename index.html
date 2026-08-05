@@ -182,9 +182,36 @@ tbody td.num{font-variant-numeric:tabular-nums;color:var(--text-2);}
   select, input[type=text]{min-width:0;width:100%;font-size:13px;}
   .section-title{font-size:14px;}
   thead th, tbody td{padding:8px 6px;font-size:11.5px;}
-  #govTable{font-size:10px;}
-  #govTable th, #govTable td{padding:4px 4px;}
-  #govTable td.wrap-col{min-width:110px;max-width:130px;}
+
+  /* Governorate table: switch from a wide grid to stacked cards on mobile */
+  #govTableWrap{max-height:none;overflow:visible;border:none;}
+  #govTable{table-layout:auto;width:100%;font-size:12.5px;}
+  #govTable thead{display:none;}
+  #govTable tbody{display:block;}
+  #govTable tr{
+    display:block;background:var(--card);border:1px solid var(--border);border-radius:10px;
+    margin-bottom:10px;padding:10px 12px;
+  }
+  #govTable td{
+    display:flex;justify-content:space-between;align-items:center;gap:10px;
+    padding:7px 0;border-bottom:1px dashed var(--border);
+    white-space:normal;text-align:left;width:auto;position:static;background:none;
+  }
+  #govTable td:last-child{border-bottom:none;}
+  #govTable td::before{
+    content:attr(data-label);font-weight:700;color:var(--navy-900);
+    font-family:'Cairo',sans-serif;font-size:11px;text-align:right;flex:0 0 auto;
+    max-width:52%;
+  }
+  #govTable td.metric-col{
+    display:block;text-align:center;background:var(--navy-900);color:#fff;
+    border-radius:8px;padding:8px;margin:-10px -12px 8px;width:auto;font-size:14px;
+    border-left:none;
+  }
+  #govTable td.metric-col::before{content:none;}
+  #govTable td.wrap-col{display:block;max-width:none;min-width:0;}
+  #govTable td.wrap-col::before{display:block;margin-bottom:4px;}
+  #mobileSortField{display:block !important;}
   .mini-kpis{width:100%;justify-content:space-between;}
   .mini-kpi{flex:1 1 auto;min-width:80px;padding:8px 10px;}
   .gov-title{font-size:16px;}
@@ -263,7 +290,22 @@ tbody td.num{font-variant-numeric:tabular-nums;color:var(--text-2);}
 
   <div class="card">
     <div class="section-title"><span class="bar"></span>جدول تفصيلي بالمحافظات</div>
-    <div style="overflow-x:auto;max-height:520px;overflow-y:auto;border:1px solid var(--border);border-radius:10px;">
+    <div class="field" id="mobileSortField" style="display:none;max-width:260px;margin-bottom:12px;">
+      <label>ترتيب حسب</label>
+      <select id="mobileSortSelect">
+        <option value="gov">المحافظة</option>
+        <option value="population">عدد السكان 2026</option>
+        <option value="nonStopped" selected>عدد العملاء الإجمالي</option>
+        <option value="perMillion">عدد العملاء لكل مليون نسمة</option>
+        <option value="y2024">إنتاجية 2024</option>
+        <option value="y2025">إنتاجية 2025</option>
+        <option value="y2026">إنتاجية 2026</option>
+        <option value="avg2025">متوسط شهري 2025</option>
+        <option value="avg2026">متوسط شهري 2026</option>
+        <option value="growth">نسبة تطور المتوسط الشهري</option>
+      </select>
+    </div>
+    <div id="govTableWrap" style="overflow-x:auto;max-height:520px;overflow-y:auto;border:1px solid var(--border);border-radius:10px;">
     <table id="govTable">
       <thead id="govTableHead"></thead>
       <tbody id="govTableBody"></tbody>
@@ -602,8 +644,8 @@ function renderGovMetricsTable(){
 
   const body = document.getElementById('govTableBody');
   body.innerHTML = rows.map(r=>{
-    const cells = cols.map(c=>`<td${c.wrap?' class="wrap-col"':''}>${c.render(r)}</td>`).join('');
-    return `<tr><td class="metric-col">${r.gov}</td>${cells}</tr>`;
+    const cells = cols.map(c=>`<td${c.wrap?' class="wrap-col"':''} data-label="${c.label.replace(/"/g,'&quot;')}">${c.render(r)}</td>`).join('');
+    return `<tr><td class="metric-col" data-label="المحافظة">${r.gov}</td>${cells}</tr>`;
   }).join('');
 }
 
@@ -612,6 +654,12 @@ document.getElementById('govTableHead').addEventListener('click', (e)=>{
   if(!th) return;
   const key = th.dataset.sort;
   if(govMetricSort.key===key) govMetricSort.dir *= -1; else { govMetricSort.key=key; govMetricSort.dir=-1; }
+  const sel = document.getElementById('mobileSortSelect');
+  if(sel) sel.value = govMetricSort.key;
+  renderGovMetricsTable();
+});
+document.getElementById('mobileSortSelect').addEventListener('change', (e)=>{
+  govMetricSort.key = e.target.value; govMetricSort.dir = -1;
   renderGovMetricsTable();
 });
 
