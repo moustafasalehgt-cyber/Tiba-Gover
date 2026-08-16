@@ -345,6 +345,15 @@ tbody td.num{font-variant-numeric:tabular-nums;color:var(--text-2);}
     </div>
     <div class="note">نفس المحافظة والقناة المختارين في التحليل الشهري أعلاه. الربع الثالث من 2026 (يوليو–سبتمبر) جزئي.</div>
   </div>
+
+  <div class="card">
+    <div class="section-title"><span class="bar"></span>الإنتاجية المتراكمة (2024–2026)</div>
+    <div class="legend" id="cumulativeChartLegend"></div>
+    <div style="position:relative;height:340px;width:100%;">
+      <canvas id="cumulativeChart" role="img" aria-label="مخطط خطي للإنتاج المتراكم شهريًا لثلاث سنوات للمحافظة المختارة"></canvas>
+    </div>
+    <div class="note">كل خط بيوضح الإنتاج التراكمي (مجموع الشهور من بداية السنة لحد الشهر ده) — مفيد لمقارنة سرعة تراكم الإنتاج بين السنوات. نفس المحافظة والقناة المختارين أعلاه.</div>
+  </div>
 </section>
 
 <!-- ===== TAB 2 ===== -->
@@ -954,10 +963,99 @@ function renderQuarterlyChart(){
   });
 }
 
-fmGovSelect.addEventListener('change', ()=>{ renderMonthlyChart(); renderQuarterlyChart(); });
-document.getElementById('fm-channel').addEventListener('change', ()=>{ renderMonthlyChart(); renderQuarterlyChart(); });
+let cumulativeChart = null;
+function renderCumulativeChart(){
+  const gov = fmGovSelect.value;
+  const channel = document.getElementById('fm-channel').value;
+  const govData = MONTHLY[gov] || {};
+
+  const datasets = [];
+  YEARS.forEach(y=>{
+    const yd = govData[String(y)] || {};
+    const monthsElapsed = MONTHS_IN_YEAR[String(y)] || 12;
+    let running = 0;
+    const cumulative = MONTHS_AR.map((m, idx)=>{
+      if(idx >= monthsElapsed) return null;
+      const d = yd[m] || {o:0,s:0};
+      let v = 0;
+      if(channel==='all') v = d.o + d.s;
+      else if(channel==='outdoor') v = d.o;
+      else v = d.s;
+      running += v;
+      return running;
+    });
+
+    datasets.push({
+      label: yearLabel(y), data: cumulative,
+      borderColor: SERIES['y'+y], backgroundColor: SERIES['y'+y],
+      fill:false, tension:.25, borderWidth:2.5,
+      pointRadius:3, pointBackgroundColor: SERIES['y'+y]
+    });
+
+    if(monthsElapsed < 12){
+      const avgMonthlyRate = running / monthsElapsed;
+      const forecast = MONTHS_AR.map((m, idx)=>{
+        if(idx < monthsElapsed-1) return null;
+        if(idx === monthsElapsed-1) return running;
+        return running + avgMonthlyRate*(idx - monthsElapsed + 1);
+      });
+      datasets.push({
+        label: yearLabel(y)+' (توقع)', data: forecast,
+        borderColor: SERIES['y'+y], backgroundColor: SERIES['y'+y],
+        fill:false, tension:.25, borderWidth:2, borderDash:[6,4],
+        pointRadius:2, pointBackgroundColor: SERIES['y'+y], isForecast:true
+      });
+    }
+  });
+
+  const legendEl = document.getElementById('cumulativeChartLegend');
+  legendEl.innerHTML = datasets.filter(ds=>!ds.isForecast).map((ds)=>{
+    const i = datasets.indexOf(ds);
+    return `<span data-idx="${i}" style="cursor:pointer;user-select:none;"><span class="sw" style="background:${ds.borderColor}"></span>${ds.label}</span>`;
+  }).join('') + '<span style="color:var(--text-3);font-size:11px;">— — خط متقطع = توقع بناءً على متوسط الإنتاج الشهري الحالي</span>';
+
+  const lineDataLabelsPlugin = {
+    id: 'lineDataLabels',
+    afterDatasetsDraw(chart){
+      const {ctx} = chart;
+      ctx.save();
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.font = "600 9px Tajawal, sans-serif";
+      chart.data.datasets.forEach((ds, dsIndex)=>{
+        const meta = chart.getDatasetMeta(dsIndex);
+        if(meta.hidden) return;
+        ctx.fillStyle = ds.isForecast ? (ds.borderColor+'99') : ds.borderColor;
+        ctx.font = ds.isForecast ? "600 8px Tajawal, sans-serif" : "600 9px Tajawal, sans-serif";
+        meta.data.forEach((point, i)=>{
+          const val = ds.data[i];
+          if(!val) return;
+          ctx.fillText(fmtInt(val), point.x, point.y-6);
+        });
+      });
+      ctx.restore();
+    }
+  };
+
+  if(cumulativeChart) cumulativeChart.destroy();
+  cumulativeChart = new Chart(document.getElementById('cumulativeChart'), {
+    type:'line',
+    data:{ labels: MONTHS_AR, datasets },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      layout:{ padding:{top:14} },
+      plugins:{ legend:{display:false}, tooltip:{callbacks:{label:(ctx)=> ctx.dataset.label+': '+fmtQty(ctx.raw,1)}} },
+      scales:{ x:{grid:{display:false}, ticks:{font:{family:'Tajawal'}}}, y:{grid:{color:'#EDEAE0'}, ticks:{callback:v=>fmtInt(v)}} }
+    },
+    plugins:[lineDataLabelsPlugin]
+  });
+}
+
+fmGovSelect.addEventListener('change', ()=>{ renderMonthlyChart(); renderQuarterlyChart(); renderCumulativeChart(); });
+document.getElementById('fm-channel').addEventListener('change', ()=>{ renderMonthlyChart(); renderQuarterlyChart(); renderCumulativeChart(); });
 renderMonthlyChart();
 renderQuarterlyChart();
+renderCumulativeChart();
 
 function wireToggleLegend(legendId, getChart){
   document.getElementById(legendId).addEventListener('click', (e)=>{
@@ -974,6 +1072,18 @@ function wireToggleLegend(legendId, getChart){
 }
 wireToggleLegend('monthlyChartLegend', ()=>monthlyChart);
 wireToggleLegend('quarterlyChartLegend', ()=>quarterlyChart);
+document.getElementById('cumulativeChartLegend').addEventListener('click', (e)=>{
+  const span = e.target.closest('span[data-idx]');
+  if(!span || !cumulativeChart) return;
+  const idx = +span.dataset.idx;
+  const visible = cumulativeChart.isDatasetVisible(idx);
+  cumulativeChart.setDatasetVisibility(idx, !visible);
+  const nextDs = cumulativeChart.data.datasets[idx+1];
+  if(nextDs && nextDs.isForecast) cumulativeChart.setDatasetVisibility(idx+1, !visible);
+  cumulativeChart.update();
+  span.style.opacity = visible ? '0.35' : '1';
+  span.style.textDecoration = visible ? 'line-through' : 'none';
+});
 
 // ================= TAB 2 =================
 const govSelect2 = document.getElementById('f2-gov');
@@ -1200,6 +1310,7 @@ refreshTab2();
         if(typeof refreshTab2==='function') refreshTab2();
         if(typeof renderMonthlyChart==='function') renderMonthlyChart();
         if(typeof renderQuarterlyChart==='function') renderQuarterlyChart();
+        if(typeof renderCumulativeChart==='function') renderCumulativeChart();
         window.dispatchEvent(new Event('resize'));
       }, 30);
     } else {
